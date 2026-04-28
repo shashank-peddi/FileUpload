@@ -101,18 +101,31 @@ export async function uploadPhoto({
 }: UploadPhotoInput): Promise<{ fileId: string; fileUrl: string }> {
   const contentBase64 = await readFileAsBase64(file)
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      folderId,
-      fileName: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      contentBase64,
-    }),
+  const requestBody = JSON.stringify({
+    folderId,
+    fileName: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    contentBase64,
   })
+
+  let response: Response
+
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        // Google Apps Script web apps do not handle CORS preflight well.
+        // text/plain keeps this as a simple request from the browser.
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: requestBody,
+    })
+  } catch {
+    throw new Error(
+      'Could not reach the upload endpoint. If you use Google Apps Script, verify the /exec URL and redeploy it as a web app available to anyone with the link.',
+    )
+  }
 
   const payload = (await response.json().catch(() => null)) as UploadPhotoResponse | null
 

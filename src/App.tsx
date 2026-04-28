@@ -283,6 +283,7 @@ function App() {
 
     let successfulUploads = 0
     let failedUploads = 0
+    let firstErrorMessage: string | null = null
 
     for (const photo of queuedPhotos) {
       updatePhoto(photo.id, { status: 'uploading', error: null })
@@ -309,6 +310,7 @@ function App() {
           driveUrl: null,
           error: errorMessage,
         })
+        firstErrorMessage ??= errorMessage
         failedUploads += 1
       }
     }
@@ -326,14 +328,14 @@ function App() {
     if (successfulUploads === 0) {
       setBanner({
         tone: 'error',
-        text: `Upload failed for ${failedUploads} photo${failedUploads === 1 ? '' : 's'}. Check the endpoint setup and try again.`,
+        text: `Upload failed for ${failedUploads} photo${failedUploads === 1 ? '' : 's'}. ${firstErrorMessage ?? 'Check the endpoint setup and try again.'}`,
       })
       return
     }
 
     setBanner({
       tone: 'warning',
-      text: `Uploaded ${successfulUploads} photo${successfulUploads === 1 ? '' : 's'}, but ${failedUploads} failed. You can retry the failed uploads.`,
+      text: `Uploaded ${successfulUploads} photo${successfulUploads === 1 ? '' : 's'}, but ${failedUploads} failed. ${firstErrorMessage ?? 'You can retry the failed uploads.'}`,
     })
   }
 
