@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 import './App.css'
 import {
@@ -20,95 +20,65 @@ type Banner = {
 type PhotoItem = {
   id: string
   file: File
-  previewUrl: string
   status: UploadStatus
   error: string | null
-  driveUrl: string | null
 }
 
 const MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024)
-const MAX_PARALLEL_UPLOADS = 30
+const MAX_PARALLEL_UPLOADS = 5
 
 const statusLabels: Record<UploadStatus, string> = {
-  ready: 'Ready',
+  ready: 'Ready to upload',
   uploading: 'Uploading',
   uploaded: 'Uploaded',
-  failed: 'Failed',
+  failed: 'Needs retry',
 }
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const photosRef = useRef<PhotoItem[]>([])
   const uploadEndpoint = String(import.meta.env.VITE_UPLOAD_ENDPOINT ?? '').trim()
   const configuredFolderLink = String(import.meta.env.VITE_DRIVE_FOLDER_LINK ?? '').trim()
-  const configuredFolderName =
-    String(import.meta.env.VITE_DRIVE_FOLDER_NAME ?? '').trim() || 'Shared Google Drive folder'
   const folderId = useMemo(
     () => extractGoogleDriveFolderId(configuredFolderLink),
     [configuredFolderLink],
   )
-  const hasUploadEndpoint = uploadEndpoint.length > 0
-  const hasDriveFolder = Boolean(folderId)
-  const configurationHint = !hasUploadEndpoint && !hasDriveFolder
-    ? 'Set both VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK in your deployment or local environment to enable uploads.'
-    : !hasUploadEndpoint
-      ? 'Set VITE_UPLOAD_ENDPOINT in your deployment or local environment to enable uploads.'
-      : !hasDriveFolder
-        ? 'Set VITE_DRIVE_FOLDER_LINK in your deployment or local environment to a valid Google Drive folder link or folder ID.'
-        : `Ready to upload to ${configuredFolderName}.`
   const [photos, setPhotos] = useState<PhotoItem[]>([])
-  const [banner, setBanner] = useState<Banner>(() => {
-    if (!hasUploadEndpoint && !hasDriveFolder) {
-      return {
-        tone: 'warning',
-        text: 'Set VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK in your deployment or local environment before trying to upload.',
-      }
-    }
-
-    if (!hasUploadEndpoint) {
-      return {
-        tone: 'warning',
-        text: 'Set VITE_UPLOAD_ENDPOINT in your deployment or local environment before trying to upload.',
-      }
-    }
-
-    if (!hasDriveFolder) {
-      return {
-        tone: 'warning',
-        text: 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder before trying to upload.',
-      }
-    }
-
-    return {
-      tone: 'info',
-      text: `Select photos and upload them to ${configuredFolderName}.`,
-    }
-  })
+  const [banner, setBanner] = useState<Banner | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const totalCount = photos.length
   const uploadedCount = photos.filter((photo) => photo.status === 'uploaded').length
+  const uploadingCount = photos.filter((photo) => photo.status === 'uploading').length
   const failedCount = photos.filter((photo) => photo.status === 'failed').length
-  const pendingCount = photos.filter((photo) => photo.status !== 'uploaded').length
+  const remainingCount = totalCount - uploadedCount
+  const progressPercent =
+    totalCount === 0 ? 0 : Math.round((uploadedCount / totalCount) * 100)
   const uploadButtonLabel = isUploading
     ? 'Uploading...'
-    : pendingCount > 0
-      ? `Upload ${pendingCount} photo${pendingCount === 1 ? '' : 's'}`
-      : 'Upload photos'
-
-  useEffect(() => {
-    photosRef.current = photos
-  }, [photos])
-
-  useEffect(() => {
-    return () => {
-      photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.previewUrl))
-    }
-  }, [])
+    : remainingCount > 0
+      ? `Upload remaining ${remainingCount}`
+      : 'All uploaded'
 
   const updatePhoto = (id: string, patch: Partial<PhotoItem>) => {
     setPhotos((current) =>
       current.map((photo) => (photo.id === id ? { ...photo, ...patch } : photo)),
     )
+  }
+
+  const getUploadSetupError = () => {
+    if (!uploadEndpoint && !folderId) {
+      return 'Uploads are not configured yet. Please try again later.'
+    }
+
+    if (!uploadEndpoint) {
+      return 'Upload service is not configured yet. Please try again later.'
+    }
+
+    if (!folderId) {
+      return 'Upload destination is not configured yet. Please try again later.'
+    }
+
+    return null
   }
 
   const addPhotos = (incoming: FileList | File[]) => {
@@ -146,10 +116,8 @@ function App() {
       additions.push({
         id,
         file,
-        previewUrl: URL.createObjectURL(file),
         status: 'ready',
         error: null,
-        driveUrl: null,
       })
     }
 
@@ -217,27 +185,104 @@ function App() {
     }
   }
 
-  const removePhoto = (id: string) => {
-    setPhotos((current) => {
-      const photoToRemove = current.find((photo) => photo.id === id)
-
-      if (photoToRemove) {
-        URL.revokeObjectURL(photoToRemove.previewUrl)
-      }
-
-      return current.filter((photo) => photo.id !== id)
+  const clearPhotos = () => {
+    setPhotos([])
+    setBanner({
+      tone: 'info',
+      text: 'Photo list cleared.',
     })
   }
 
-  const clearPhotos = () => {
-    setPhotos((current) => {
-      current.forEach((photo) => URL.revokeObjectURL(photo.previewUrl))
-      return []
-    })
+  const uploadSinglePhoto = async (photo: PhotoItem) => {
+    updatePhoto(photo.id, { status: 'uploading', error: null })
 
+    try {
+      await uploadPhoto({
+        endpoint: uploadEndpoint,
+        folderId: folderId ?? '',
+        file: photo.file,
+      })
+
+      updatePhoto(photo.id, {
+        status: 'uploaded',
+        error: null,
+      })
+      return { success: true, errorMessage: null }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'The photo could not be uploaded.'
+
+      updatePhoto(photo.id, {
+        status: 'failed',
+        error: errorMessage,
+      })
+      return { success: false, errorMessage }
+    }
+  }
+
+  const runUploadBatch = async (targetPhotos: PhotoItem[], batchSize = MAX_PARALLEL_UPLOADS) => {
+    const setupError = getUploadSetupError()
+
+    if (setupError) {
+      setBanner({
+        tone: 'error',
+        text: setupError,
+      })
+      return
+    }
+
+    const firstTargetName = targetPhotos[0]?.file.name ?? 'photo'
+    const parallelUploads = Math.min(batchSize, targetPhotos.length)
+
+    setIsUploading(true)
     setBanner({
       tone: 'info',
-      text: 'Photo list cleared. Add more photos whenever you are ready.',
+      text:
+        targetPhotos.length === 1
+          ? `Uploading ${firstTargetName}...`
+          : `Uploading ${targetPhotos.length} photos (${parallelUploads} at a time)...`,
+    })
+
+    const results: Array<{ success: boolean; errorMessage: string | null }> = []
+
+    for (let batchStart = 0; batchStart < targetPhotos.length; batchStart += parallelUploads) {
+      const batch = targetPhotos.slice(batchStart, batchStart + parallelUploads)
+      const batchResults = await Promise.all(batch.map(uploadSinglePhoto))
+      results.push(...batchResults)
+    }
+
+    setIsUploading(false)
+
+    const successfulUploads = results.filter((result) => result.success).length
+    const failedUploads = results.length - successfulUploads
+    const firstErrorMessage =
+      results.find((result) => !result.success)?.errorMessage ?? null
+
+    if (failedUploads === 0) {
+      setBanner({
+        tone: 'success',
+        text:
+          targetPhotos.length === 1
+            ? `${firstTargetName} uploaded successfully.`
+            : `Uploaded ${successfulUploads} photo${successfulUploads === 1 ? '' : 's'}.`,
+      })
+      return
+    }
+
+    if (successfulUploads === 0) {
+      setBanner({
+        tone: 'error',
+        text:
+          targetPhotos.length === 1
+            ? `Could not upload ${firstTargetName}. ${firstErrorMessage ?? 'Please try again.'}`
+            : `Upload failed for ${failedUploads} photo${failedUploads === 1 ? '' : 's'}. ${firstErrorMessage ?? 'Please try again.'}`,
+      })
+      return
+    }
+
+    setBanner({
+      tone: 'warning',
+      text: `Uploaded ${successfulUploads} photo${successfulUploads === 1 ? '' : 's'}. ${failedUploads} still need retry. ${firstErrorMessage ?? ''}`.trim(),
     })
   }
 
@@ -260,305 +305,176 @@ function App() {
       return
     }
 
-    if (!uploadEndpoint) {
-      setBanner({
-        tone: 'error',
-        text: 'Set VITE_UPLOAD_ENDPOINT in your deployment or local environment before trying to upload.',
-      })
+    await runUploadBatch(queuedPhotos)
+  }
+
+  const handleUploadSingle = async (photoId: string) => {
+    const targetPhoto = photos.find((photo) => photo.id === photoId)
+
+    if (!targetPhoto || targetPhoto.status === 'uploaded' || targetPhoto.status === 'uploading') {
       return
     }
 
-    if (!folderId) {
-      setBanner({
-        tone: 'error',
-        text: 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder link or folder ID before uploading.',
-      })
-      return
-    }
-
-    setIsUploading(true)
-    const parallelUploads = Math.min(MAX_PARALLEL_UPLOADS, queuedPhotos.length)
-    setBanner({
-      tone: 'info',
-      text: `Uploading ${queuedPhotos.length} photo${queuedPhotos.length === 1 ? '' : 's'} to Google Drive (${parallelUploads} at a time)...`,
-    })
-
-    const uploadSinglePhoto = async (photo: PhotoItem) => {
-      updatePhoto(photo.id, { status: 'uploading', error: null })
-
-      try {
-        const result = await uploadPhoto({
-          endpoint: uploadEndpoint,
-          folderId,
-          file: photo.file,
-        })
-
-        updatePhoto(photo.id, {
-          status: 'uploaded',
-          driveUrl: result.fileUrl || null,
-          error: null,
-        })
-        return { success: true, errorMessage: null }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'The photo could not be uploaded.'
-
-        updatePhoto(photo.id, {
-          status: 'failed',
-          driveUrl: null,
-          error: errorMessage,
-        })
-        return { success: false, errorMessage }
-      }
-    }
-
-    const results: Array<{ success: boolean; errorMessage: string | null }> = []
-
-    for (let batchStart = 0; batchStart < queuedPhotos.length; batchStart += MAX_PARALLEL_UPLOADS) {
-      const batch = queuedPhotos.slice(batchStart, batchStart + MAX_PARALLEL_UPLOADS)
-      const batchResults = await Promise.all(batch.map(uploadSinglePhoto))
-      results.push(...batchResults)
-    }
-
-    setIsUploading(false)
-
-    const successfulUploads = results.filter((result) => result.success).length
-    const failedUploads = results.length - successfulUploads
-    const firstErrorMessage =
-      results.find((result) => !result.success)?.errorMessage ?? null
-
-    if (failedUploads === 0) {
-      setBanner({
-        tone: 'success',
-        text: `Uploaded ${successfulUploads} photo${successfulUploads === 1 ? '' : 's'} to Google Drive.`,
-      })
-      return
-    }
-
-    if (successfulUploads === 0) {
-      setBanner({
-        tone: 'error',
-        text: `Upload failed for ${failedUploads} photo${failedUploads === 1 ? '' : 's'}. ${firstErrorMessage ?? 'Check the endpoint setup and try again.'}`,
-      })
-      return
-    }
-
-    setBanner({
-      tone: 'warning',
-      text: `Uploaded ${successfulUploads} photo${successfulUploads === 1 ? '' : 's'}, but ${failedUploads} failed. ${firstErrorMessage ?? 'You can retry the failed uploads.'}`,
-    })
+    await runUploadBatch([targetPhoto], 1)
   }
 
   return (
     <main className="app-shell">
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <p className="eyebrow">Photo Drive Uploader</p>
-          <h1>Collect photos and send them to a shared Google Drive folder.</h1>
-          <p className="lead">
-            This React project is ready for GitHub hosting. Users can add photos on a
-            single page, while uploads are sent through a configurable endpoint so Drive
-            credentials stay out of the browser.
-          </p>
+      <section className="upload-card">
+        <div className="page-heading">
+          <h1>Upload your photos</h1>
+          <p>Select photos from your device and upload them to the shared album.</p>
         </div>
 
-        <div className="hero-badges">
-          <span className={`pill ${uploadEndpoint ? 'pill-success' : 'pill-warning'}`}>
-            {uploadEndpoint ? 'Upload endpoint configured' : 'Upload endpoint needed'}
-          </span>
-          <span className={`pill ${folderId ? 'pill-success' : 'pill-neutral'}`}>
-            {folderId ? 'Drive folder ready' : 'Drive folder needed'}
-          </span>
-        </div>
-      </section>
+        {totalCount > 0 && (
+          <div className="progress-overview">
+            <div className="progress-copy">
+              <p className="progress-label">Upload progress</p>
+              <div className="progress-metrics">
+                <span className="progress-value">{progressPercent}%</span>
+                <span className="progress-subtext">
+                  {uploadedCount} of {totalCount} uploaded
+                </span>
+              </div>
+            </div>
 
-      <section className="workspace">
-        <div className="panel">
-          <div className="section-heading">
-            <div>
-              <h2>Drive destination</h2>
-              <p>The upload page is locked to your configured shared Google Drive folder.</p>
+            <div className="progress-bar" aria-hidden="true">
+              <span
+                className="progress-bar-fill"
+                style={{ width: `${progressPercent}%` }}
+              ></span>
+            </div>
+
+            <div className="progress-stats">
+              <span>{uploadedCount} uploaded</span>
+              <span>{remainingCount} remaining</span>
+              {uploadingCount > 0 && <span>{uploadingCount} uploading</span>}
+              {failedCount > 0 && <span>{failedCount} need retry</span>}
             </div>
           </div>
+        )}
 
-          <div className="destination-card">
-            <div className="destination-copy">
-              <p className="destination-label">Configured shared folder</p>
-              <h3 className="destination-name">{configuredFolderName}</h3>
-              {configuredFolderLink ? (
-                <a
-                  className="text-link destination-link"
-                  href={configuredFolderLink}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {configuredFolderLink}
-                </a>
-              ) : (
-                <p className="muted-text">
-                  Set <code>VITE_DRIVE_FOLDER_LINK</code> in your deployment or local environment.
-                </p>
-              )}
-              <p className={`helper destination-id ${folderId ? 'helper-success' : ''}`}>
-                {folderId
-                  ? `Configured folder ID: ${folderId}`
-                  : 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder link or ID.'}
-              </p>
-            </div>
-          </div>
-
+        {banner && (
           <div className={`banner banner-${banner.tone}`}>
             <p>{banner.text}</p>
           </div>
+        )}
 
-          <div
-            className={`dropzone ${isDragging ? 'dropzone-active' : ''}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            role="presentation"
+        <div
+          className={`dropzone ${isDragging ? 'dropzone-active' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          role="presentation"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={handleFileChange}
+          />
+          <p className="dropzone-title">Drag and drop photos here</p>
+          <p className="dropzone-copy">or choose images from your device</p>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => fileInputRef.current?.click()}
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={handleFileChange}
-            />
-            <p className="dropzone-title">Drag and drop photos here</p>
-            <p className="dropzone-copy">or choose images from your device</p>
-            <button type="button" className="primary-button" onClick={() => fileInputRef.current?.click()}>
-              Choose photos
-            </button>
-            <p className="dropzone-meta">
-              Image files only, up to {MAX_FILE_SIZE_MB} MB each.
-            </p>
-          </div>
-
-          <div className="action-row">
-            <div className="stats">
-              <span>{photos.length} selected</span>
-              <span>{uploadedCount} uploaded</span>
-              {failedCount > 0 && <span>{failedCount} failed</span>}
-            </div>
-
-            <div className="button-row">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={clearPhotos}
-                disabled={photos.length === 0 || isUploading}
-              >
-                Clear photos
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={handleUpload}
-                disabled={isUploading}
-              >
-                {uploadButtonLabel}
-              </button>
-            </div>
-          </div>
-
-          <p className={`config-note ${hasUploadEndpoint && hasDriveFolder ? 'config-note-success' : ''}`}>
-            {configurationHint}
-          </p>
+            Choose photos
+          </button>
+          <p className="dropzone-meta">Image files only, up to {MAX_FILE_SIZE_MB} MB each.</p>
         </div>
 
-        <aside className="panel side-panel">
-          <div>
-            <h2>Setup checklist</h2>
-            <ol className="checklist">
-              <li>Deploy the sample `apps-script/Code.gs` file as a Google Apps Script web app.</li>
-              <li>Set `VITE_UPLOAD_ENDPOINT` in your GitHub environment variables or `.env.local` for local testing.</li>
-              <li>Set `VITE_DRIVE_FOLDER_LINK` in your GitHub environment variables or `.env.local` for local testing.</li>
-              <li>Start uploading photos.</li>
-            </ol>
+        <div className="action-row">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={clearPhotos}
+            disabled={totalCount === 0 || isUploading}
+          >
+            Clear list
+          </button>
+          <div className="button-row">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleUpload}
+              disabled={isUploading || totalCount === 0 || remainingCount === 0}
+            >
+              {uploadButtonLabel}
+            </button>
           </div>
-
-          <div className="endpoint-card">
-            <h3>Current endpoint</h3>
-            <code>{uploadEndpoint || 'VITE_UPLOAD_ENDPOINT is not set yet.'}</code>
-          </div>
-
-          <p className="side-note">
-            If you want OneDrive, Dropbox, SharePoint, or another storage provider, the
-            upload endpoint can be swapped without redesigning the page.
-          </p>
-        </aside>
+        </div>
       </section>
 
-      <section className="gallery-panel">
-        <div className="section-heading">
-          <div>
-            <h2>Selected photos</h2>
-            <p>Upload one or many images in the same session and retry any failures.</p>
+        <section className="file-list-card">
+          <div className="list-header">
+            <div>
+              <h2>Files</h2>
+              <p>Uploaded files show a tick. Pending or failed files can be uploaded again.</p>
+            </div>
+            {totalCount > 0 && <span className="list-count">{totalCount} files</span>}
           </div>
-        </div>
 
-        {photos.length === 0 ? (
+          {photos.length === 0 ? (
           <div className="empty-state">
-            <p>No photos selected yet.</p>
+            <p>No photos added yet.</p>
           </div>
         ) : (
-          <ul className="photo-grid">
+          <ul className="file-list">
             {photos.map((photo) => (
-              <li key={photo.id} className="photo-card">
-                <div className="photo-preview-wrap">
-                  <img
-                    className="photo-preview"
-                    src={photo.previewUrl}
-                    alt={photo.file.name}
-                  />
-                  <span className={`status-badge status-${photo.status}`}>
-                    {statusLabels[photo.status]}
+              <li key={photo.id} className={`file-row file-row-${photo.status}`}>
+                <div className="file-row-main">
+                  <span
+                    className={`file-status-indicator file-status-${photo.status}`}
+                    aria-hidden="true"
+                  >
+                    {photo.status === 'uploaded'
+                      ? '✓'
+                      : photo.status === 'failed'
+                        ? '!'
+                        : photo.status === 'uploading'
+                          ? '...'
+                          : '•'}
                   </span>
+
+                  <div className="file-copy">
+                    <p className="file-name">{photo.file.name}</p>
+                    <p className="file-meta">
+                      {formatFileSize(photo.file.size)} · {statusLabels[photo.status]}
+                    </p>
+                    {photo.error && <p className="file-error">{photo.error}</p>}
+                  </div>
                 </div>
 
-                <div className="photo-card-body">
-                  <div className="photo-meta">
-                    <h3>{photo.file.name}</h3>
-                    <p>{formatFileSize(photo.file.size)}</p>
-                  </div>
-
-                  {photo.error && <p className="photo-error">{photo.error}</p>}
-
-                  <div className="photo-actions">
-                    {photo.driveUrl ? (
-                      <a
-                        className="text-link"
-                        href={photo.driveUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open in Drive
-                      </a>
-                    ) : (
-                      <span className="muted-text">
-                        {isUploading && photo.status === 'uploading'
-                          ? 'Uploading now...'
-                          : 'Drive link will appear after upload'}
+                <div className="file-row-actions">
+                  {photo.status === 'uploaded' ? (
+                    <span className="file-result file-result-uploaded">
+                      <span className="file-result-tick" aria-hidden="true">
+                        ✓
                       </span>
-                    )}
-
+                      Uploaded
+                    </span>
+                  ) : photo.status === 'uploading' ? (
+                    <span className="file-result file-result-uploading">Uploading...</span>
+                  ) : (
                     <button
                       type="button"
-                      className="secondary-button"
-                      onClick={() => removePhoto(photo.id)}
-                      disabled={isUploading && photo.status === 'uploading'}
+                      className="secondary-button compact-button"
+                      onClick={() => void handleUploadSingle(photo.id)}
+                      disabled={isUploading}
                     >
-                      Remove
+                      {photo.status === 'failed' ? 'Retry' : 'Upload'}
                     </button>
-                  </div>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
         )}
-      </section>
+        </section>
     </main>
   )
 }
