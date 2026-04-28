@@ -49,25 +49,25 @@ function App() {
   const hasUploadEndpoint = uploadEndpoint.length > 0
   const hasDriveFolder = Boolean(folderId)
   const configurationHint = !hasUploadEndpoint && !hasDriveFolder
-    ? 'Set both VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK to enable uploads.'
+    ? 'Set both VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK in your deployment or local environment to enable uploads.'
     : !hasUploadEndpoint
-      ? 'Set VITE_UPLOAD_ENDPOINT to enable uploads in local development.'
+      ? 'Set VITE_UPLOAD_ENDPOINT in your deployment or local environment to enable uploads.'
       : !hasDriveFolder
-        ? 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder link or folder ID.'
+        ? 'Set VITE_DRIVE_FOLDER_LINK in your deployment or local environment to a valid Google Drive folder link or folder ID.'
         : `Ready to upload to ${configuredFolderName}.`
   const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [banner, setBanner] = useState<Banner>(() => {
     if (!hasUploadEndpoint && !hasDriveFolder) {
       return {
         tone: 'warning',
-        text: 'Set VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK before trying to upload.',
+        text: 'Set VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK in your deployment or local environment before trying to upload.',
       }
     }
 
     if (!hasUploadEndpoint) {
       return {
         tone: 'warning',
-        text: 'Set VITE_UPLOAD_ENDPOINT before trying to upload.',
+        text: 'Set VITE_UPLOAD_ENDPOINT in your deployment or local environment before trying to upload.',
       }
     }
 
@@ -262,7 +262,7 @@ function App() {
     if (!uploadEndpoint) {
       setBanner({
         tone: 'error',
-        text: 'Set VITE_UPLOAD_ENDPOINT in .env.local before trying to upload.',
+        text: 'Set VITE_UPLOAD_ENDPOINT in your deployment or local environment before trying to upload.',
       })
       return
     }
@@ -384,7 +384,7 @@ function App() {
                 </a>
               ) : (
                 <p className="muted-text">
-                  Set <code>VITE_DRIVE_FOLDER_LINK</code> in <code>.env.local</code>.
+                  Set <code>VITE_DRIVE_FOLDER_LINK</code> in your deployment or local environment.
                 </p>
               )}
               <p className={`helper destination-id ${folderId ? 'helper-success' : ''}`}>
@@ -461,8 +461,8 @@ function App() {
             <h2>Setup checklist</h2>
             <ol className="checklist">
               <li>Deploy the sample `apps-script/Code.gs` file as a Google Apps Script web app.</li>
-              <li>Put the returned web app URL into `VITE_UPLOAD_ENDPOINT` in `.env.local`.</li>
-              <li>Set `VITE_DRIVE_FOLDER_LINK` to the shared Google Drive folder link.</li>
+              <li>Set `VITE_UPLOAD_ENDPOINT` in your GitHub environment variables or `.env.local` for local testing.</li>
+              <li>Set `VITE_DRIVE_FOLDER_LINK` in your GitHub environment variables or `.env.local` for local testing.</li>
               <li>Start uploading photos.</li>
             </ol>
           </div>

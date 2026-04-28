@@ -18,6 +18,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     env:
       VITE_UPLOAD_ENDPOINT: ${{ vars.VITE_UPLOAD_ENDPOINT }}
       VITE_DRIVE_FOLDER_NAME: ${{ vars.VITE_DRIVE_FOLDER_NAME }}
