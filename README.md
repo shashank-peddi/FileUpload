@@ -50,6 +50,24 @@ npm run preview
 The Vite config uses `base: './'`, which helps when the site is hosted from a repo
 subpath such as GitHub Pages.
 
+## GitHub Pages deploy
+
+This repo includes `.github/workflows/deploy.yml` so pushes to `main` can build and
+publish the app to GitHub Pages.
+
+Before the workflow can publish a working site:
+
+1. In GitHub, open your repository settings and enable GitHub Pages with source set to
+   `GitHub Actions`.
+2. In repository `Settings > Secrets and variables > Actions > Variables`, create:
+   - `VITE_UPLOAD_ENDPOINT`
+   - `VITE_DRIVE_FOLDER_NAME`
+   - `VITE_DRIVE_FOLDER_LINK`
+3. Push to `main` or run the workflow manually from the Actions tab.
+
+Important: every `VITE_*` value is bundled into the frontend and is visible in the
+deployed site. Treat them as public configuration, not server-side secrets.
+
 ## Google Drive setup
 
 1. Create a new Google Apps Script project.
