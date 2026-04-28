@@ -353,6 +353,16 @@
   flex-wrap: wrap;
 }
 
+.config-note {
+  margin: 14px 0 0;
+  color: #fbbf24;
+  font-size: 0.95rem;
+}
+
+.config-note-success {
+  color: #86efac;
+}
+
 .side-panel {
   display: flex;
   flex-direction: column;

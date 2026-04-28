@@ -42,20 +42,49 @@ function App() {
   const configuredFolderLink = String(import.meta.env.VITE_DRIVE_FOLDER_LINK ?? '').trim()
   const configuredFolderName =
     String(import.meta.env.VITE_DRIVE_FOLDER_NAME ?? '').trim() || 'Shared Google Drive folder'
-  const [photos, setPhotos] = useState<PhotoItem[]>([])
-  const [banner, setBanner] = useState<Banner>({
-    tone: configuredFolderLink ? 'info' : 'warning',
-    text: configuredFolderLink
-      ? `Select photos and upload them to ${configuredFolderName}.`
-      : 'Set VITE_DRIVE_FOLDER_LINK in .env.local before trying to upload.',
-  })
-  const [isDragging, setIsDragging] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-
   const folderId = useMemo(
     () => extractGoogleDriveFolderId(configuredFolderLink),
     [configuredFolderLink],
   )
+  const hasUploadEndpoint = uploadEndpoint.length > 0
+  const hasDriveFolder = Boolean(folderId)
+  const configurationHint = !hasUploadEndpoint && !hasDriveFolder
+    ? 'Set both VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK to enable uploads.'
+    : !hasUploadEndpoint
+      ? 'Set VITE_UPLOAD_ENDPOINT to enable uploads in local development.'
+      : !hasDriveFolder
+        ? 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder link or folder ID.'
+        : `Ready to upload to ${configuredFolderName}.`
+  const [photos, setPhotos] = useState<PhotoItem[]>([])
+  const [banner, setBanner] = useState<Banner>(() => {
+    if (!hasUploadEndpoint && !hasDriveFolder) {
+      return {
+        tone: 'warning',
+        text: 'Set VITE_UPLOAD_ENDPOINT and VITE_DRIVE_FOLDER_LINK before trying to upload.',
+      }
+    }
+
+    if (!hasUploadEndpoint) {
+      return {
+        tone: 'warning',
+        text: 'Set VITE_UPLOAD_ENDPOINT before trying to upload.',
+      }
+    }
+
+    if (!hasDriveFolder) {
+      return {
+        tone: 'warning',
+        text: 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder before trying to upload.',
+      }
+    }
+
+    return {
+      tone: 'info',
+      text: `Select photos and upload them to ${configuredFolderName}.`,
+    }
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const uploadedCount = photos.filter((photo) => photo.status === 'uploaded').length
   const failedCount = photos.filter((photo) => photo.status === 'failed').length
   const pendingCount = photos.filter((photo) => photo.status !== 'uploaded').length
@@ -402,12 +431,16 @@ function App() {
                 type="button"
                 className="primary-button"
                 onClick={handleUpload}
-                disabled={pendingCount === 0 || isUploading || !folderId || !uploadEndpoint}
+                disabled={pendingCount === 0 || isUploading}
               >
                 {isUploading ? 'Uploading...' : 'Upload photos'}
               </button>
             </div>
           </div>
+
+          <p className={`config-note ${hasUploadEndpoint && hasDriveFolder ? 'config-note-success' : ''}`}>
+            {configurationHint}
+          </p>
         </div>
 
         <aside className="panel side-panel">
