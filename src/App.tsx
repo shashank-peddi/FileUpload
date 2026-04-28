@@ -88,6 +88,11 @@ function App() {
   const uploadedCount = photos.filter((photo) => photo.status === 'uploaded').length
   const failedCount = photos.filter((photo) => photo.status === 'failed').length
   const pendingCount = photos.filter((photo) => photo.status !== 'uploaded').length
+  const uploadButtonLabel = isUploading
+    ? 'Uploading...'
+    : pendingCount > 0
+      ? `Upload ${pendingCount} photo${pendingCount === 1 ? '' : 's'}`
+      : 'Upload photos'
 
   useEffect(() => {
     photosRef.current = photos
@@ -236,6 +241,24 @@ function App() {
   }
 
   const handleUpload = async () => {
+    if (photos.length === 0) {
+      setBanner({
+        tone: 'warning',
+        text: 'Choose at least one photo before uploading.',
+      })
+      return
+    }
+
+    const queuedPhotos = photos.filter((photo) => photo.status !== 'uploaded')
+
+    if (queuedPhotos.length === 0) {
+      setBanner({
+        tone: 'info',
+        text: 'All selected photos have already been uploaded.',
+      })
+      return
+    }
+
     if (!uploadEndpoint) {
       setBanner({
         tone: 'error',
@@ -248,16 +271,6 @@ function App() {
       setBanner({
         tone: 'error',
         text: 'Set VITE_DRIVE_FOLDER_LINK to a valid Google Drive folder link or folder ID before uploading.',
-      })
-      return
-    }
-
-    const queuedPhotos = photos.filter((photo) => photo.status !== 'uploaded')
-
-    if (queuedPhotos.length === 0) {
-      setBanner({
-        tone: 'info',
-        text: 'All selected photos have already been uploaded.',
       })
       return
     }
@@ -431,9 +444,9 @@ function App() {
                 type="button"
                 className="primary-button"
                 onClick={handleUpload}
-                disabled={pendingCount === 0 || isUploading}
+                disabled={isUploading}
               >
-                {isUploading ? 'Uploading...' : 'Upload photos'}
+                {uploadButtonLabel}
               </button>
             </div>
           </div>
