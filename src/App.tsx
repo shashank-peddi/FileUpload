@@ -27,6 +27,7 @@ type PhotoItem = {
 }
 
 const MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024)
+const MAX_PARALLEL_UPLOADS = 30
 
 const statusLabels: Record<UploadStatus, string> = {
   ready: 'Ready',
@@ -276,16 +277,13 @@ function App() {
     }
 
     setIsUploading(true)
+    const parallelUploads = Math.min(MAX_PARALLEL_UPLOADS, queuedPhotos.length)
     setBanner({
       tone: 'info',
-      text: `Uploading ${queuedPhotos.length} photo${queuedPhotos.length === 1 ? '' : 's'} to Google Drive...`,
+      text: `Uploading ${queuedPhotos.length} photo${queuedPhotos.length === 1 ? '' : 's'} to Google Drive (${parallelUploads} at a time)...`,
     })
 
-    let successfulUploads = 0
-    let failedUploads = 0
-    let firstErrorMessage: string | null = null
-
-    for (const photo of queuedPhotos) {
+    const uploadSinglePhoto = async (photo: PhotoItem) => {
       updatePhoto(photo.id, { status: 'uploading', error: null })
 
       try {
@@ -300,7 +298,7 @@ function App() {
           driveUrl: result.fileUrl || null,
           error: null,
         })
-        successfulUploads += 1
+        return { success: true, errorMessage: null }
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'The photo could not be uploaded.'
@@ -310,12 +308,24 @@ function App() {
           driveUrl: null,
           error: errorMessage,
         })
-        firstErrorMessage ??= errorMessage
-        failedUploads += 1
+        return { success: false, errorMessage }
       }
     }
 
+    const results: Array<{ success: boolean; errorMessage: string | null }> = []
+
+    for (let batchStart = 0; batchStart < queuedPhotos.length; batchStart += MAX_PARALLEL_UPLOADS) {
+      const batch = queuedPhotos.slice(batchStart, batchStart + MAX_PARALLEL_UPLOADS)
+      const batchResults = await Promise.all(batch.map(uploadSinglePhoto))
+      results.push(...batchResults)
+    }
+
     setIsUploading(false)
+
+    const successfulUploads = results.filter((result) => result.success).length
+    const failedUploads = results.length - successfulUploads
+    const firstErrorMessage =
+      results.find((result) => !result.success)?.errorMessage ?? null
 
     if (failedUploads === 0) {
       setBanner({
