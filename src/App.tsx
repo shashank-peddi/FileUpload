@@ -25,7 +25,7 @@ type PhotoItem = {
 }
 
 const MAX_FILE_SIZE_MB = MAX_FILE_SIZE_BYTES / (1024 * 1024)
-const MAX_PARALLEL_UPLOADS = 50
+const MAX_PARALLEL_UPLOADS = 100
 
 const statusLabels: Record<UploadStatus, string> = {
   ready: 'Ready to upload',
